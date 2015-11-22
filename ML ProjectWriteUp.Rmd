@@ -1,0 +1,117 @@
+---
+title: "Project Report - Practical Machine Learning Course"
+author: "Mario Melchiori"
+date: "November 21, 2015"
+output: html_document
+---
+
+# Introduction
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: (http://groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset). 
+
+The goal of the project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. We will also use your prediction model to predict 20 different test cases. 
+
+# Data 
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. They have been very generous in allowing their data to be used for us. 
+
+# Load data
+
+```{r , cache=TRUE}
+pml.training <- read.csv("~/datasciencecoursera/pml-training.csv",                          na.strings = c("NA","#DIV/0!"))
+pml.testing <- read.csv("~/datasciencecoursera/pml-testing.csv", 
+                        na.strings = c("NA", "#DIV/0!"))
+```
+
+# Cleaning data
+We choose the features that contains the labels arm or belt or dumbbell or forearm and delete the features with 19000 rows or more NA values.
+
+```{r , cache=TRUE}
+response <- pml.training[ ,160]
+pml.training$classe <- response
+pml.training <- pml.training[ ,grep("arm|belt|dumbbell|forearm", names(pml.training))]
+pml.training <- pml.training[ ,colSums(is.na(pml.training)) < 19000]
+pml.training$classe <- response
+```
+
+First, we inspect no NA values in the dataset. Then, we split the dataset into two. We randomly subsample 60% of the data for training purposes, while the 40% remainder will be used only for testing, evaluation and accuracy measurement.
+
+```{r , cache=TRUE}
+table(complete.cases(pml.training))
+library(caret)
+inTrain <- createDataPartition(y=pml.training$classe,
+                               p=0.6, list=FALSE)
+training <- pml.training[inTrain,]
+testing <- pml.training[-inTrain,]
+rm(list = "pml.training") 
+```
+
+# Model Selection
+
+We will test the Random Forest's mtry parameter and set the mtree parameter equal to 400:
+```{r , cache=TRUE}
+library(randomForest)
+set.seed(22115)
+oob.err=double(13)
+test.err=double(13)
+for(mtry in 1:13){
+  fit=randomForest(classe ~ ., data=training,mtry=mtry,ntree=400)
+  oob.err[mtry]=fit$err.rate[400]
+  pred=predict(fit,testing)
+  test.err[mtry]=postResample(pred, testing$classe) [1]
+  cat(mtry," ")
+}
+matplot(1:mtry,cbind(test.err,1-oob.err),pch=19,col=c("red","blue"),type="b",ylab="Accuracy")
+legend("topleft",legend=c("Test","OOB"),pch=19,col=c("red","blue"))
+which(test.err==max(test.err), arr.ind=TRUE)
+which(1-oob.err==max(1-oob.err), arr.ind=TRUE)
+```
+
+We choose mtry parameter equal to 10 and mtree equal to 400.
+
+# Variables selection
+
+To select the features we use cross validation:
+
+```{r , cache=TRUE}
+cvfeatures <- rfcv(trainx = training[,-53], trainy = training[,53], 
+                   scale = FALSE, step=-10, cv.fold=5)
+cbind(cvfeatures $error.cv)
+```
+
+By using 52 features we obtain the lower croos validation error.
+Below wee see the importance each variable.
+
+```{r ,cache=TRUE}
+rf=randomForest(classe ~ ., data=training, mtree = 400, mtry = 10)
+rfImportance <- data.frame(variable = names(rf$importance[,1]), importance = rf$importance[,1])
+rfImportance <- rfImportance[ order(-rfImportance[,2]),]
+rownames(rfImportance ) <- NULL
+rfImportance
+```
+
+# Model Validation
+
+We proceed to examine how well the model fits on the data testing set. 
+
+```{r ,cache=TRUE}
+predictionTesting <- predict(rf, newdata = testing)
+confusionMatrix(predictionTesting, testing$classe)
+```
+
+# Model Testing
+Finaly, we use the model to write the results on the test set, as instructed:
+```{r , cache = TRUE}
+predict_testing <- predict(rf,pml.testing)
+predictionTesting = predict(rf ,newdata = pml.testing)
+answers <- as.character(predict(rf, pml.testing))
+answers
+```
